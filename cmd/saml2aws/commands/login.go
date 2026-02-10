@@ -311,15 +311,21 @@ func selectAwsRole(samlAssertion string, account *cfg.IDPAccount) (*saml2aws.AWS
 func resolveRole(awsRoles []*saml2aws.AWSRole, samlAssertion string, account *cfg.IDPAccount) (*saml2aws.AWSRole, error) {
 	var role = new(saml2aws.AWSRole)
 
-	if len(awsRoles) == 1 {
-		if account.RoleARN != "" {
-			return saml2aws.LocateRole(awsRoles, account.RoleARN)
-		}
-		return awsRoles[0], nil
-	} else if len(awsRoles) == 0 {
+	if len(awsRoles) == 0 {
 		return nil, errors.New("No roles available.")
 	}
 
+	// If a role ARN is specified, locate and return it directly without calling AWS UI
+	if account.RoleARN != "" {
+		return saml2aws.LocateRole(awsRoles, account.RoleARN)
+	}
+
+	// If there's only one role, return it directly
+	if len(awsRoles) == 1 {
+		return awsRoles[0], nil
+	}
+
+	// Multiple roles and no role specified - need to get account info from AWS for selection
 	samlAssertionData, err := b64.StdEncoding.DecodeString(samlAssertion)
 	if err != nil {
 		return nil, errors.Wrap(err, "Error decoding SAML assertion.")
@@ -339,10 +345,6 @@ func resolveRole(awsRoles []*saml2aws.AWSRole, samlAssertion string, account *cf
 	}
 
 	saml2aws.AssignPrincipals(awsRoles, awsAccounts)
-
-	if account.RoleARN != "" {
-		return saml2aws.LocateRole(awsRoles, account.RoleARN)
-	}
 
 	for {
 		role, err = saml2aws.PromptForAWSRoleSelection(awsAccounts)
