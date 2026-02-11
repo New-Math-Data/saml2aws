@@ -122,6 +122,18 @@ func Login(loginFlags *flags.LoginExecFlags) error {
 		os.Exit(1)
 	}
 
+	// DEBUG: Print SAML assertion
+	// log.Println("=== SAML ASSERTION (base64) ===")
+	// log.Println(samlAssertion)
+	// log.Println("=== END SAML ASSERTION ===")
+
+	// DEBUG: Print decoded SAML assertion
+	// if decoded, err := b64.StdEncoding.DecodeString(samlAssertion); err == nil {
+	// 	log.Println("=== SAML ASSERTION (decoded XML) ===")
+	// 	log.Println(string(decoded))
+	// 	log.Println("=== END DECODED SAML ASSERTION ===")
+	// }
+
 	if !loginFlags.CommonFlags.DisableKeychain {
 		err = credentials.SaveCredentials(loginDetails.URL, loginDetails.Username, loginDetails.Password)
 		if err != nil {
@@ -289,10 +301,26 @@ func selectAwsRole(samlAssertion string, account *cfg.IDPAccount) (*saml2aws.AWS
 		return nil, errors.Wrap(err, "Error decoding SAML assertion.")
 	}
 
+	// log.Println("=== DEBUG selectAwsRole ===")
+	// log.Printf("Decoded SAML length: %d bytes", len(data))
+
 	roles, err := saml2aws.ExtractAwsRoles(data)
 	if err != nil {
 		return nil, errors.Wrap(err, "Error parsing AWS roles.")
 	}
+
+	log.Printf("Extracted %d role strings", len(roles))
+	// for i, role := range roles {
+	// 	log.Printf("Role %d (before fix): %s", i, role)
+	// }
+
+	// Fix role/provider order in the extracted role strings
+	roles = fixRoleProviderOrderInRoles(roles)
+
+	log.Println("After fixing:")
+	// for i, role := range roles {
+	// 	log.Printf("Role %d (after fix): %s", i, role)
+	// }
 
 	if len(roles) == 0 {
 		log.Println("No roles to assume.")
@@ -304,6 +332,12 @@ func selectAwsRole(samlAssertion string, account *cfg.IDPAccount) (*saml2aws.AWS
 	if err != nil {
 		return nil, errors.Wrap(err, "Error parsing AWS roles.")
 	}
+
+	log.Printf("Parsed %d AWS roles", len(awsRoles))
+	// for i, role := range awsRoles {
+	// 	log.Printf("AWS Role %d: RoleARN=%s, PrincipalARN=%s", i, role.RoleARN, role.PrincipalARN)
+	// }
+	// log.Println("=== END DEBUG ===")
 
 	return resolveRole(awsRoles, samlAssertion, account)
 }
@@ -325,27 +359,50 @@ func resolveRole(awsRoles []*saml2aws.AWSRole, samlAssertion string, account *cf
 		return awsRoles[0], nil
 	}
 
-	// Multiple roles and no role specified - need to get account info from AWS for selection
-	samlAssertionData, err := b64.StdEncoding.DecodeString(samlAssertion)
-	if err != nil {
-		return nil, errors.Wrap(err, "Error decoding SAML assertion.")
+	// Multiple roles - create account list from roles directly
+	// Note: ParseAWSAccounts doesn't work with modern AWS (returns JS redirect page)
+	log.Println("Creating account list from roles")
+	accountMap := make(map[string]*saml2aws.AWSAccount)
+
+	for _, awsRole := range awsRoles {
+		// Extract account ID from role ARN (arn:aws:iam::ACCOUNT:role/NAME)
+		accountID := "Unknown"
+		roleName := "Unknown"
+		parts := strings.Split(awsRole.RoleARN, ":")
+		if len(parts) >= 5 {
+			accountID = parts[4]
+			// Extract role name from the last part (role/NAME)
+			if len(parts) >= 6 {
+				roleParts := strings.Split(parts[5], "/")
+				if len(roleParts) >= 2 {
+					roleName = roleParts[1]
+				}
+			}
+		}
+
+		if accountMap[accountID] == nil {
+			accountMap[accountID] = &saml2aws.AWSAccount{
+				Name:  accountID,
+				Roles: []*saml2aws.AWSRole{},
+			}
+		}
+
+		// Set the role name for display
+		awsRole.Name = roleName
+		accountMap[accountID].Roles = append(accountMap[accountID].Roles, awsRole)
 	}
 
-	aud, err := saml2aws.ExtractDestinationURL(samlAssertionData)
-	if err != nil {
-		return nil, errors.Wrap(err, "Error parsing destination URL.")
+	// Convert map to slice
+	var awsAccounts []*saml2aws.AWSAccount
+	for _, acc := range accountMap {
+		awsAccounts = append(awsAccounts, acc)
 	}
 
-	awsAccounts, err := saml2aws.ParseAWSAccounts(aud, samlAssertion)
-	if err != nil {
-		return nil, errors.Wrap(err, "Error parsing AWS role accounts.")
-	}
-	if len(awsAccounts) == 0 {
-		return nil, errors.New("No accounts available.")
-	}
+	log.Printf("Created %d accounts from %d roles", len(awsAccounts), len(awsRoles))
 
 	saml2aws.AssignPrincipals(awsRoles, awsAccounts)
 
+	var err error
 	for {
 		role, err = saml2aws.PromptForAWSRoleSelection(awsAccounts)
 		if err == nil {
@@ -469,4 +526,47 @@ func PrintCredentialProcess(awsCreds *awsconfig.AWSCredentials) error {
 		fmt.Println(jsonData)
 	}
 	return err
+}
+
+// fixRoleProviderOrder ensures that role/provider pairs in the SAML assertion
+// are in the correct order: role ARN first, provider ARN second.
+// The provider ARN contains "saml-provider" in its path.
+func fixRoleProviderOrderInRoles(roles []string) []string {
+	log.Println("=== FIXING ROLE/PROVIDER ORDER IN EXTRACTED ROLES ===")
+
+	fixed := make([]string, len(roles))
+	fixedCount := 0
+
+	for i, roleStr := range roles {
+		// Split by comma
+		parts := strings.Split(roleStr, ",")
+		if len(parts) != 2 {
+			// Not a role/provider pair, keep as is
+			fixed[i] = roleStr
+			continue
+		}
+
+		arn1 := strings.TrimSpace(parts[0])
+		arn2 := strings.TrimSpace(parts[1])
+
+		// Check if first is provider and second is role (wrong order)
+		if strings.Contains(arn1, "saml-provider") && strings.Contains(arn2, ":role/") {
+			// Swap to role,provider
+			fixed[i] = arn2 + "," + arn1
+			log.Printf("Fixed: %s -> %s", roleStr, fixed[i])
+			fixedCount++
+		} else {
+			// Already correct or not a role/provider pair
+			fixed[i] = roleStr
+		}
+	}
+
+	if fixedCount > 0 {
+		log.Printf("Fixed %d role/provider pairs", fixedCount)
+	} else {
+		log.Println("All roles already in correct order")
+	}
+	log.Println("=== END FIXING ===")
+
+	return fixed
 }
