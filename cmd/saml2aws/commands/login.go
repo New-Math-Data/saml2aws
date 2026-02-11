@@ -123,16 +123,16 @@ func Login(loginFlags *flags.LoginExecFlags) error {
 	}
 
 	// DEBUG: Print SAML assertion
-	log.Println("=== SAML ASSERTION (base64) ===")
-	log.Println(samlAssertion)
-	log.Println("=== END SAML ASSERTION ===")
+	// log.Println("=== SAML ASSERTION (base64) ===")
+	// log.Println(samlAssertion)
+	// log.Println("=== END SAML ASSERTION ===")
 
 	// DEBUG: Print decoded SAML assertion
-	if decoded, err := b64.StdEncoding.DecodeString(samlAssertion); err == nil {
-		log.Println("=== SAML ASSERTION (decoded XML) ===")
-		log.Println(string(decoded))
-		log.Println("=== END DECODED SAML ASSERTION ===")
-	}
+	// if decoded, err := b64.StdEncoding.DecodeString(samlAssertion); err == nil {
+	// 	log.Println("=== SAML ASSERTION (decoded XML) ===")
+	// 	log.Println(string(decoded))
+	// 	log.Println("=== END DECODED SAML ASSERTION ===")
+	// }
 
 	if !loginFlags.CommonFlags.DisableKeychain {
 		err = credentials.SaveCredentials(loginDetails.URL, loginDetails.Username, loginDetails.Password)
@@ -301,8 +301,8 @@ func selectAwsRole(samlAssertion string, account *cfg.IDPAccount) (*saml2aws.AWS
 		return nil, errors.Wrap(err, "Error decoding SAML assertion.")
 	}
 
-	log.Println("=== DEBUG selectAwsRole ===")
-	log.Printf("Decoded SAML length: %d bytes", len(data))
+	// log.Println("=== DEBUG selectAwsRole ===")
+	// log.Printf("Decoded SAML length: %d bytes", len(data))
 
 	roles, err := saml2aws.ExtractAwsRoles(data)
 	if err != nil {
@@ -310,17 +310,17 @@ func selectAwsRole(samlAssertion string, account *cfg.IDPAccount) (*saml2aws.AWS
 	}
 
 	log.Printf("Extracted %d role strings", len(roles))
-	for i, role := range roles {
-		log.Printf("Role %d (before fix): %s", i, role)
-	}
+	// for i, role := range roles {
+	// 	log.Printf("Role %d (before fix): %s", i, role)
+	// }
 
 	// Fix role/provider order in the extracted role strings
 	roles = fixRoleProviderOrderInRoles(roles)
 
 	log.Println("After fixing:")
-	for i, role := range roles {
-		log.Printf("Role %d (after fix): %s", i, role)
-	}
+	// for i, role := range roles {
+	// 	log.Printf("Role %d (after fix): %s", i, role)
+	// }
 
 	if len(roles) == 0 {
 		log.Println("No roles to assume.")
@@ -334,10 +334,10 @@ func selectAwsRole(samlAssertion string, account *cfg.IDPAccount) (*saml2aws.AWS
 	}
 
 	log.Printf("Parsed %d AWS roles", len(awsRoles))
-	for i, role := range awsRoles {
-		log.Printf("AWS Role %d: RoleARN=%s, PrincipalARN=%s", i, role.RoleARN, role.PrincipalARN)
-	}
-	log.Println("=== END DEBUG ===")
+	// for i, role := range awsRoles {
+	// 	log.Printf("AWS Role %d: RoleARN=%s, PrincipalARN=%s", i, role.RoleARN, role.PrincipalARN)
+	// }
+	// log.Println("=== END DEBUG ===")
 
 	return resolveRole(awsRoles, samlAssertion, account)
 }

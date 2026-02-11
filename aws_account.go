@@ -20,9 +20,9 @@ type AWSAccount struct {
 
 // ParseAWSAccounts extract the aws accounts from the saml assertion
 func ParseAWSAccounts(audience string, samlAssertion string) ([]*AWSAccount, error) {
-	log.Println("=== DEBUG ParseAWSAccounts ===")
-	log.Printf("Posting to audience: %s", audience)
-	log.Printf("SAML assertion length: %d", len(samlAssertion))
+	// log.Println("=== DEBUG ParseAWSAccounts ===")
+	// log.Printf("Posting to audience: %s", audience)
+	// log.Printf("SAML assertion length: %d", len(samlAssertion))
 
 	res, err := http.PostForm(audience, url.Values{"SAMLResponse": {samlAssertion}})
 	if err != nil {
@@ -40,8 +40,8 @@ func ParseAWSAccounts(audience string, samlAssertion string) ([]*AWSAccount, err
 		return nil, errors.Wrap(err, "error retrieving AWS login body")
 	}
 
-	log.Printf("Response body length: %d bytes", len(data))
-	log.Println(string(data))
+	// log.Printf("Response body length: %d bytes", len(data))
+	// log.Println(string(data))
 	// log.Println("First 500 chars of response:")
 	// if len(data) > 500 {
 	// 	log.Println(string(data[:500]))
