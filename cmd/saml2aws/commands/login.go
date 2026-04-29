@@ -203,6 +203,11 @@ func buildIdpAccount(loginFlags *flags.LoginExecFlags) (*cfg.IDPAccount, error) 
 	// update username and hostname if supplied
 	flags.ApplyFlagOverrides(loginFlags.CommonFlags, account)
 
+	// pass through debug flag (not part of CommonFlags)
+	if loginFlags.DebugIDP {
+		account.DebugIDP = true
+	}
+
 	err = account.Validate()
 	if err != nil {
 		return nil, errors.Wrap(err, "Failed to validate account.")
