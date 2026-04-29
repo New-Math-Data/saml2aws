@@ -21,3 +21,6 @@ bin/
 # direnv
 .envrc
 .buildtemp
+
+# compiled binary
+/saml2aws

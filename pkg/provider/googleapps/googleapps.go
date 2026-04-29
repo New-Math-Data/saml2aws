@@ -28,7 +28,8 @@ var logger = logrus.WithField("provider", "googleapps")
 type Client struct {
 	provider.ValidateBase
 
-	client *provider.HTTPClient
+	client   *provider.HTTPClient
+	debugIDP bool
 }
 
 // New create a new Google Apps Client
@@ -42,7 +43,8 @@ func New(idpAccount *cfg.IDPAccount) (*Client, error) {
 	}
 
 	return &Client{
-		client: client,
+		client:   client,
+		debugIDP: idpAccount.DebugIDP,
 	}, nil
 }
 
@@ -163,8 +165,42 @@ func (kc *Client) Authenticate(loginDetails *creds.LoginDetails) (string, error)
 
 	samlAssertion := mustFindInputByName(responseDoc, "SAMLResponse")
 	if samlAssertion == "" {
+		// Log targeted debug info when SAML assertion is missing
+		logger.Debug("No SAMLResponse found in response page")
+
+		pageTitle := responseDoc.Find("title").Text()
+		logger.Debugf("Page title: %q", pageTitle)
+
+		responseDoc.Find("h1, h2, h3").Each(func(i int, s *goquery.Selection) {
+			logger.Debugf("Heading [%s]: %q", goquery.NodeName(s), strings.TrimSpace(s.Text()))
+		})
+
+		responseDoc.Find("form").Each(func(i int, s *goquery.Selection) {
+			action, _ := s.Attr("action")
+			id, _ := s.Attr("id")
+			logger.Debugf("Form id=%q action=%q", id, action)
+		})
+
+		// Dump full response HTML to a temp file when --debug-idp is set
+		if kc.debugIDP {
+			htmlBody, dumpErr := responseDoc.Html()
+			if dumpErr == nil {
+				tmpFile, tmpErr := os.CreateTemp("", "saml2aws-debug-*.html")
+				if tmpErr == nil {
+					tmpFile.WriteString(htmlBody)
+					tmpFile.Close()
+					log.Printf("IDP response page written to: %s", tmpFile.Name())
+				}
+			}
+		}
+
 		if responseDoc.Selection.Find("#passwordError").Text() != "" {
 			return "", errors.New("Password error")
+		}
+
+		// Check for forced password change page
+		if strings.Contains(strings.ToLower(responseDoc.Find("h2").Text()), "create a strong password") {
+			return "", errors.New("Google is requiring a password change for your account. Please log in at https://accounts.google.com in a browser to set a new password, then try again")
 		}
 
 		if err := isMissing2StepSetup(responseDoc); err != nil {
